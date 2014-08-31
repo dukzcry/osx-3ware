@@ -1,34 +1,9 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeControllerIO.cpp,v 1.18 2003/12/23 22:06:32 msmith Exp $
 
 //
 // Low-level controller I/O primitives and procedures.
 //
 
-// Master include - do not include other headers here.
 #include "Escalade.h"
 
 // convenience
@@ -125,7 +100,7 @@ self::disableInterrupts(void)
 bool
 self::waitStatusBits(UInt32 bits, int waittime)
 {
-    UInt32	status_reg;
+    UInt32	status_reg = 0;
     int		i;
 
     for (i = 0; i < (waittime * 100); i++) {
@@ -146,7 +121,7 @@ bool
 self::drainResponseQueue(void)
 {
     UInt32		status_reg;
-    UInt8		tag;
+    //UInt8		tag;
 
     // spin pulling responses until none left
     for (;;) {
@@ -160,7 +135,7 @@ self::drainResponseQueue(void)
 	// check for more status
 	if (status_reg & TWE_STATUS_RESPONSE_QUEUE_EMPTY)
 	    break;
-	tag = getResponseReg();
+	//tag = getResponseReg();
     }
     return(true);
 }
@@ -306,16 +281,7 @@ self::runSynchronousCommand(EscaladeCommand *ec)
 	return(false);
     }
     
-    // we will be waiting on this command
     ret = ec->prepare(true);
-    // if it needs alignment fixup...
-    if (ret == kIOReturnNotAligned) {
-	// get a copy buffer, teardown is automatic in complete()
-	ret = ec->getCopyBuffer();
-	if (ret == kIOReturnSuccess)
-	    // and try again
-	    ret = ec->prepare(true);
-    }
     // check that prepare() succeeded
     if (ret != kIOReturnSuccess) {
 	error("prepare() failed");
@@ -392,14 +358,6 @@ reset_done:
     
     // we will not be waiting on this command
     ret = ec->prepare(false);
-    // if it needs alignment fixup...
-    if (ret == kIOReturnNotAligned) {
-	// get a copy buffer, teardown is automatic in complete()
-	ret = ec->getCopyBuffer();
-	if (ret == kIOReturnSuccess)
-	    // and try again
-	    ret = ec->prepare(false);
-    }
     // check that prepare() succeeded
     if (ret != kIOReturnSuccess) {
 	ec->complete(false);

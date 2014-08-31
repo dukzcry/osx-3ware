@@ -1,34 +1,9 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeControllerPM.cpp,v 1.8 2003/12/23 22:08:05 msmith Exp $
 
 //
 // Power management.
 //
 
-// Master include - do not include other headers here.
 #include "Escalade.h"
 
 // convenience
@@ -49,7 +24,7 @@ static IOPMPowerState powerStates[] = {
     // standby, drives powered down
     {kIOPMPowerStateVersion1, 0, IOPMPowerOn, IOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0},
     // active
-    {kIOPMPowerStateVersion1, (IOPMDeviceUsable | IOPMMaxPerformance | kIOPMPreventIdleSleep), IOPMPowerOn, IOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0}
+    {kIOPMPowerStateVersion1, (IOPMDeviceUsable | kIOPMPreventIdleSleep), IOPMPowerOn, IOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0}
 };
 
 
@@ -72,7 +47,6 @@ self::initPowerManagement(IOService *provider)
     // power driver init
     registerPowerDriver(this, powerStates, EC_POWER_NSTATES);
     drivePowerState = true;
-    powerState = EC_POWER_ACTIVE;
 
     // register our power-down handler
     powerDownNotifier = registerPrioritySleepWakeInterest((IOServiceInterestHandler)powerDownHandler, this);
@@ -87,11 +61,10 @@ self::initPowerManagement(IOService *provider)
 // Report the controller's initial power state
 //
 // XXX is this useful/called?
-UInt32
+unsigned long
 self::initialPowerStateForDomainState(__unused IOPMPowerFlags flags)
 {
     debug(3, "power state queried");
-    powerState = EC_POWER_ACTIVE;
     return(EC_POWER_ACTIVE);
 }
 
@@ -99,9 +72,9 @@ self::initialPowerStateForDomainState(__unused IOPMPowerFlags flags)
 // Implement power state changes.
 //
 IOReturn
-self::setPowerState(unsigned long state, __unused IOService *junk)
+self::setPowerState(unsigned long state, IOService *junk __unused)
 {
-    debug(3, "called in state %d to set state %d", powerState, (int)state);
+    debug(3, "called in state %d to set state %d", getPowerState(), (int)state);
 
     switch(state) {
 	case EC_POWER_OFF:
@@ -111,13 +84,17 @@ self::setPowerState(unsigned long state, __unused IOService *junk)
 	    // handler.
 	case EC_POWER_STANDBY:
 	    supportThreadAddWork(ST_DO_POWER_STANDBY);
-	    break;
+	    return(60 * 1000 * 1000);	// one minute timeout if we fail to comply
 	case EC_POWER_ACTIVE:
-	    supportThreadAddWork(ST_DO_POWER_ACTIVE);
+        // The active transition is simpler, since there can be no active
+        // commands if we are not already active.
+        debug(3, "power state transition to active requested");
+        setPowerActive();
+        break;
 	default:
 	    return(IOPMNoSuchState);
     }
-    return(60 * 1000 * 1000);	// one minute timeout if we fail to comply
+    return kIOPMAckImplied;
 }
 
 //
@@ -126,25 +103,24 @@ self::setPowerState(unsigned long state, __unused IOService *junk)
 void
 self::setPowerStandby(void)
 {
-    debug(3, "called in state %d", powerState);
+    debug(3, "called in state %d", getPowerState());
 
     // If we were powered off, first reset/reinit the controller.
     // It doesn't make a lot of sense to go from off to standby,
     // and if we're in fact in active, this is us preparing to
     // go to sleep.
-    if (needReInit && powerState != EC_POWER_ACTIVE) {
-	debug(3, "bring controller up");
-	initController();
+    if (needReInit && getPowerState() != EC_POWER_ACTIVE) {
+        debug(3, "bring controller up");
+        initController();
     }
 
     // If the drives are spinning, turn them off.
     if (drivePowerState) {
-	debug(3, "stopping disks");
-	setDrivePower(false);
+        debug(3, "stopping disks");
+        setDrivePower(false);
     }
 
     // transition complete
-    powerState = EC_POWER_STANDBY;
     acknowledgeSetPowerState();
     debug(3, "transition to STANDBY complete");
 }
@@ -156,25 +132,20 @@ self::setPowerStandby(void)
 void
 self::setPowerActive(void)
 {
-    debug(3, "called in state %d", powerState);
+    debug(3, "called in state %d", getPowerState());
 
     // If we were powered off, first reset/reinit the controller.
     if (needReInit) {
-	debug(3, "bring controller up");
-	initController();
+        debug(3, "bring controller up");
+        initController();
     }
 
     // If the drives might be off, bring them back
-    if (powerState <= EC_POWER_STANDBY) {
-	debug(3, "starting disks");
-	setDrivePower(true);
+    if (getPowerState() <= EC_POWER_STANDBY) {
+        debug(3, "starting disks");
+        setDrivePower(true);
     }
 
-    // turn off suspend mode and wake everyone up
-    powerState = EC_POWER_ACTIVE;
-    suspending = 0;
-    commandGate->commandWakeup(&powerState);
-    acknowledgeSetPowerState();
     debug(3, "transition to ACTIVE complete");
 }
 
@@ -207,7 +178,7 @@ self::checkPowerState(void)
     // we've dropped to a lower power state and have to wait for
     // it to come back up.
     if (activityTickle(kIOPMSuperclassPolicy1, EC_POWER_ACTIVE))
-	return;
+        return;
 
     // Wait for power to be restored
     commandGate->runAction(checkPowerStateLocked);
@@ -224,8 +195,8 @@ self::checkPowerStateLocked(OSObject *owner, __unused void *arg0, __unused void 
 
     // wait for us to switch to the required state
     debug(3, "waiting for power to be restored");
-    while (sp->powerState != EC_POWER_ACTIVE)
-	sp->commandGate->commandSleep(&sp->powerState);
+    while ((sp->powerState = sp->getPowerState()) != EC_POWER_ACTIVE)
+        sp->commandGate->commandSleep(&sp->powerState);
 
     return(kIOReturnSuccess);
 }
@@ -312,47 +283,37 @@ self::powerDownHandler(void *target, __unused void *refCon, UInt32 messageType, 
 void
 self::addFullPowerConsumer(void)
 {
-    debug(4, "add background activity");
-    commandGate->runAction(changeFullPowerConsumer, (void *)1);
+    changeFullPowerConsumer(1);
 }
 
 void
 self::removeFullPowerConsumer(void)
 {
-    debug(4, "remove background activity");
-    commandGate->runAction(changeFullPowerConsumer, (void *)-1);
+    changeFullPowerConsumer(-1);
 }
 
 IOReturn
-self::changeFullPowerConsumer(OSObject *owner, void *arg0, __unused void *arg1, __unused void *arg2, __unused void *arg3)
+self::changeFullPowerConsumer(int delta)
 {
-    EscaladeController	*sp;
-    int		delta;
-
-    if ((sp = OSDynamicCast(EscaladeController, owner)) == NULL)
-	return(kIOReturnError);
-
-    delta = (int)arg0;
-
     // handle transitions to/from 0
-    if ((delta == 1) && (sp->fullPowerConsumers == 0)) {
+    if ((delta == 1) && (fullPowerConsumers == 0)) {
 	// clamp power to maximum while we need it
-	sp->changePowerStateTo(EC_POWER_ACTIVE);
-	debug(3, "clamping power while background operation in progess");
+        changePowerStateTo(EC_POWER_ACTIVE);
+        debug(3, "clamping power while background operation in progess");
     } else if (delta == -1) {
-	if (sp->fullPowerConsumers == 1) {
+	if (fullPowerConsumers == 1) {
 	    // relinquish control over our power.
-	    sp->changePowerStateTo(0);
+	    changePowerStateTo(0);
 	    debug(3, "background operations complete, returning to standard PM policy");
 	}
-	if (sp->fullPowerConsumers < 1) {
+	if (fullPowerConsumers < 1) {
 	    error("too many removeFullPowerConsumer calls!");
 	    return(kIOReturnError);
 	}
     } else if ((delta != -1) && (delta != 1)) {
-	error("bad delta %d", delta);
-	return(kIOReturnError);
+        error("bad delta %d", delta);
+        return(kIOReturnError);
     }
-    sp->fullPowerConsumers += delta;
+    fullPowerConsumers += delta;
     return(kIOReturnSuccess);
 }

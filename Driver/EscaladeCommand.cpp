@@ -1,34 +1,9 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeCommand.cpp,v 1.23 2003/12/23 21:57:20 msmith Exp $
 
 //
 // Implementation of the EscaladeCommand class.
 //
 
-// Master include - do not include other headers here.
 #include "Escalade.h"
 
 // convenience
@@ -36,8 +11,6 @@
 #define self	EscaladeCommand
 
 OSDefineMetaClassAndStructors(self, super);
-
-static void	hexdump(void *p, int count);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Factory method to create a new EscaladeCommand and insert it into the
@@ -64,8 +37,6 @@ self::withAttributes(int withType, EscaladeController *withController, UInt8 wit
 bool
 self::init(int withType, EscaladeController *withController, UInt8 withTag)
 {
-    IOByteCount junk;
-
     // superclass init
     if (!super::init())
 	return(false);
@@ -81,8 +52,6 @@ self::init(int withType, EscaladeController *withController, UInt8 withTag)
     commandPtr = NULL;
     dataBuffer = NULL;
     paramBuffer = NULL;
-    copyBuffer = NULL;
-    realBuffer = NULL;
 
     // allocate buffer for command
     if ((command = IOBufferMemoryDescriptor::withOptions(kIODirectionOutIn |
@@ -92,7 +61,7 @@ self::init(int withType, EscaladeController *withController, UInt8 withTag)
 	super::free();
 	return(false);
     }
-    commandPhys = command->getPhysicalSegment(0, &junk);
+    commandPhys = command->getPhysicalSegment(0, NULL);
     commandPtr = (TWE_Command *)command->getBytesNoCopy();
 
     // Insert into pool
@@ -132,8 +101,6 @@ self::_wasGotten(void)
     dataBuffer = NULL;
     paramBuffer = NULL;
     paramPtr = NULL;
-    copyBuffer = NULL;
-    realBuffer = NULL;
     timeoutCredits = TWE_TIMEOUT_DEFAULT;
     timedOut = false;
 }
@@ -157,10 +124,6 @@ self::returnCommand(void)
 	dataBuffer->release();
     if (paramBuffer != NULL)
 	paramBuffer->release();
-    if (copyBuffer != NULL)
-	copyBuffer->release();
-    if (realBuffer != NULL)
-	realBuffer->release();
 
     controller->_returnCommand(this);
 }
@@ -219,81 +182,6 @@ self::releaseParamBuffer(void)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Copy buffer handling
-//
-// The 'real' IOMemoryDescriptor isn't suitable for the controller.
-// Allocate a temporary buffer that is.
-//
-// Note that this is a great way to run the kernel out of VM.  Typically
-// transfers requiring copy buffers are small; enforce that assumption here
-// to prevent a DoS.
-//
-// XXX A cleaner way to do this would of course be to perform the transfer
-//     in smaller chunks.
-IOReturn
-self::getCopyBuffer(void)
-{
-    IOByteCount	size, szFrag;
-    IODirection	dir;
-    void	*copyPtr;
-
-    // fetch characteristics of the original transfer
-    size = dataBuffer->getLength();
-    dir = dataBuffer->getDirection();
-
-    // make sure we're OK with this
-    if (size > TWE_MAX_COPYBUFFER) {
-	error("unaligned request size %u too large", (uint)size);
-	return(kIOReturnNoMemory);
-    }
-
-    // save the real buffer
-    realBuffer = dataBuffer;
-
-    // size must be a multiple of TWE_SECTOR_SIZE
-    if ((szFrag = (size % TWE_SECTOR_SIZE)) != 0)
-	size += TWE_SECTOR_SIZE - szFrag;
-
-    // get a temporary buffer with the same size/direction but correct alignment
-    copyBuffer = IOBufferMemoryDescriptor::withOptions(dir, size, TWE_ALIGNMENT);
-    if (copyBuffer == NULL) {
-	error("unable to allocate copy buffer");
-	return(kIOReturnNoMemory);		// despite sanity, still can't get it
-    }
-    copyPtr = copyBuffer->getBytesNoCopy();
-
-    // if data is outbound, we need to copy now
-    if (dir & kIODirectionOut)
-	realBuffer->readBytes(0, copyPtr, size);
-
-    // make this the buffer for the command
-    dataBuffer = copyBuffer;
-    dataBuffer->prepare(dir);
-
-    return(kIOReturnSuccess);
-}
-
-void
-self::finishCopyBuffer(void)
-{
-    IOByteCount	size;
-    IODirection	dir;
-    void	*copyPtr;
-
-    dir = realBuffer->getDirection();
-    if (dir & kIODirectionIn) {
-	size = realBuffer->getLength();
-	copyPtr = copyBuffer->getBytesNoCopy();
-	realBuffer->writeBytes(0, copyPtr, size);
-    }
-
-    dataBuffer = realBuffer;
-    realBuffer = NULL;
-    copyBuffer->release();
-    copyBuffer = NULL;
-}
-
-////////////////////////////////////////////////////////////////////////////////
 // Prepare a command for submission:
 //
 // - fix up the command structure
@@ -304,9 +192,8 @@ IOReturn
 self::prepare(bool waiting)
 {
     TWE_SG_Entry *sg;
-    UInt32	sgcount, size;
-    int		sgoff;
-    bool	needCopy;
+    UInt32	sgcount;
+    UInt64		sgoff;
 
     // If this flag is set on completion, we will wake up the owner of
     // the command.
@@ -323,23 +210,34 @@ self::prepare(bool waiting)
 	// find scatter/gather list
 	sg = (TWE_SG_Entry *)((UInt32 *)commandPtr + sgoff);
 
-	// get physical segments, check whether to bounce
-	sgcount = controller->memoryCursor->getPhysicalSegments(dataBuffer,
-							 sg,
-							 &size,
-							 &needCopy);
-	// if the buffer isn't legally aligned, bail
-	if (needCopy)
-	    return(kIOReturnNotAligned);
+    /* XXX: Performance bottleneck */
+    if ((dmaCommand = controller->factory()) == NULL) {
+        error("cound not allocate dma command");
+        return(kIOReturnError);
+    }
+    dmaCommand->setMemoryDescriptor(dataBuffer);
+    /* */
+	// Generate a scatter/gather list in appropriate format.
+    sgoff = 0;
+    sgcount = TWE_MAX_SGL_LENGTH;
+    if (dmaCommand->genIOVMSegments(&sgoff, sg, &sgcount) != kIOReturnSuccess)
+        goto fail;
 
 	// fix up command size
 	commandPtr->generic.size += 2 * sgcount;
 	sg[sgcount].address = sg[sgcount].length = 0;	// terminate debug output cleanly
-	byteCount = size;
+    byteCount = dataBuffer->getLength();
     }
-//    print();
+#if defined(DEBUG)
+    print();
+#endif
 
     return(kIOReturnSuccess);
+fail:
+    dmaCommand->clearMemoryDescriptor();
+    dmaCommand->release();
+    dmaCommand = NULL;
+    return(kIOReturnError);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -350,10 +248,17 @@ void
 self::complete(bool postSuccess)
 {
     IOStorageCompletion localCompletion;
-    IOByteCount	actualByteCount;
+    //IOByteCount	actualByteCount;
     bool	result;
 
     postResult = postSuccess;
+    
+    // release our dma command
+    if (dmaCommand != NULL) {
+        dmaCommand->clearMemoryDescriptor();
+        dmaCommand->release();
+        dmaCommand = NULL;
+    }
     
     command->complete(kIODirectionOutIn);
     dequeueActive();
@@ -361,10 +266,6 @@ self::complete(bool postSuccess)
     // auto-complete if we have a parameter buffer
     if (paramBuffer != NULL)
 	paramBuffer->complete(kIODirectionOutIn);
-
-    // if we have a copy buffer, finalise it
-    if (copyBuffer != NULL)
-	finishCopyBuffer();
 
     // data buffers for SET_PARAM auto-release here
     if (commandPtr->generic.opcode == TWE_OP_SET_PARAM)
@@ -377,7 +278,7 @@ self::complete(bool postSuccess)
     } else {
 	// save because we are going to release command first
 	localCompletion = completion;
-	actualByteCount = byteCount;
+	//actualByteCount = byteCount;
 	result = getResult();
 	if (!result) {
 	    debug(2, "I/O error 0x%02x/ox%02x", (uint)commandPtr->generic.status, (uint)commandPtr->generic.flags);
@@ -389,7 +290,7 @@ self::complete(bool postSuccess)
 	returnCommand();
 
 	// Invoke completion
-	IOStorage::complete(localCompletion,
+	IOStorage::complete(&localCompletion,
 		     result ? kIOReturnSuccess : kIOReturnError,
 		     result ? byteCount : 0);
     }
@@ -623,8 +524,20 @@ self::checkTimeout(void)
     return(timedOut);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// debugging
+#if defined(DEBUG)
+static void
+hexdump(void *vp, int count)
+{
+    UInt8	*p = (UInt8 *)vp;
+    int		i, j;
+    
+    for (j = 0; j < count; j += 16) {
+        IOLog("    %04x:", j);
+        for (i = j; (i < (j + 16)) && (i < count); i++)
+            IOLog(" %02x", (uint)*(p + i));
+        IOLog("\n");
+    }
+}
 void
 self::print(void)
 {
@@ -672,17 +585,4 @@ self::print(void)
 	    break;
     }
 }
-
-static void
-hexdump(void *vp, int count)
-{
-    UInt8	*p = (UInt8 *)vp;
-    int		i, j;
-
-    for (j = 0; j < count; j += 16) {
-	IOLog("    %04x:", j);
-	for (i = j; (i < (j + 16)) && (i < count); i++)
-	    IOLog(" %02x", (uint)*(p + i));
-	IOLog("\n");
-    }
-}
+#endif

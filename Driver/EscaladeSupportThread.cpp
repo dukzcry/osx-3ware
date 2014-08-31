@@ -1,28 +1,4 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeSupportThread.cpp,v 1.7 2003/12/23 21:51:20 msmith Exp $
 
 //
 // Support thread for the controller.
@@ -36,7 +12,6 @@
 //       the possibility of deadlock when a reset is requested.
 //
 
-// Master include - do not include other headers here.
 #include "Escalade.h"
 
 // convenience
@@ -58,7 +33,7 @@ self::startSupportThread(void *arg)
     sp->supportThread = NULL;	// just for cleanliness' sake
     sp->release();
     debug(3, "support thread exiting");
-    IOExitThread();
+    thread_terminate(*globalThreadPtr);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -177,14 +152,6 @@ self::supportThreadMain(void)
 	    }
 	    WB_CLEAR(ST_DO_POWER_STANDBY);
 	}
-
-	// The active transition is simpler, since there can be no active
-	// commands if we are not already active.
-	if (WB_POWER(ST_DO_POWER_ACTIVE)) {
-	    debug(3, "power state transition to active requested");
-	    setPowerActive();
-	    WB_CLEAR(ST_DO_POWER_ACTIVE);
-	}
     }
 }
 
@@ -192,7 +159,7 @@ self::supportThreadMain(void)
 // Check the active commands list for timed-out commands
 //
 IOReturn
-self::supportThreadCheckTimeouts(OSObject *owner, void *arg0, __unused void *arg1, __unused void *arg2, __unused void *arg3)
+self::supportThreadCheckTimeouts(OSObject *owner, void *arg0, void *arg1 __unused, void *arg2 __unused, void *arg3 __unused)
 {
     EscaladeCommand	*ec;
     self		*sp;
@@ -286,7 +253,7 @@ self::supportThreadAddWork(UInt32 workBits)
 // suspending flag.
 //
 IOReturn
-self::setSuspending(OSObject *owner, __unused void *arg0, __unused void *arg1, __unused void *arg2, __unused void *arg3)
+self::setSuspending(OSObject *owner, void *arg0 __unused, void *arg1 __unused, void *arg2 __unused, void *arg3 __unused)
 {
     self	*sp;
 

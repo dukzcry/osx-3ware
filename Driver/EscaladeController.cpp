@@ -1,34 +1,9 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeController.cpp,v 1.35 2003/12/23 22:00:13 msmith Exp $
 
 //
 // Implementation of EscaladeController
 //
 
-// Master include - do not include other headers here.
 #include "Escalade.h"
 
 // convenience
@@ -38,12 +13,20 @@
 // default metaclass, structors
 OSDefineMetaClassAndStructors(self, super);
 
-static void showBanner(EscaladeController *us);
-EscaladeController *escalade_classptr;
-
 ////////////////////////////////////////////////////////////////////////////////
 // IOService protocol
 //
+
+IOThread self::IOCreateThread(IOThreadFunc fcn, void *arg)
+{
+    thread_t thread;
+    
+    if (kernel_thread_start((thread_continue_t) fcn, arg, &thread) != KERN_SUCCESS)
+        return NULL;
+    
+    thread_deallocate(thread);
+    return thread;
+}
 
 //
 // Our hardware was detected, set up to talk to it.
@@ -51,24 +34,20 @@ EscaladeController *escalade_classptr;
 bool
 self::start(IOService *provider)
 {
-    const OSSymbol *userClient;
+    //const OSSymbol *userClient;
     bool	result;
     int		i;
-
-    showBanner(this);
     
     //
     // Initialise instance variables.
     //
     cold = true;
     resetting = false;
-    pmEnabled = false;
     pciNub = NULL;
     commandGate = NULL;
     interruptSrc = NULL;
     timerSrc = NULL;
     workLoop = NULL;
-    memoryCursor = NULL;
     freeCommands = NULL;
     emergencyCommand = NULL;
     aenBufHead = 0;
@@ -168,6 +147,7 @@ self::start(IOService *provider)
     // set initial timeout
     timerSrc->setTimeoutMS(TWE_TIMEOUT_INTERVAL);
 
+#if 0
     //
     // Set up the UserClient.
     //
@@ -184,17 +164,11 @@ self::start(IOService *provider)
 
     // Register ourselves for UserClient connectivity.
     registerService();
+#endif
 
     //
     // Initialise commands and their requisite support.
     //
-
-    // set up a memory cursor for generating s/g lists
-    memoryCursor = EscaladeMemoryCursor::factory();
-    if (memoryCursor == NULL) {
-	error("cound not allocate memory cursor");
-	goto fail;
-    }
 
     // create our command pools
     if (!createCommands(TWE_MAX_COMMANDS)) {
@@ -206,6 +180,7 @@ self::start(IOService *provider)
     // Kick off the support thread.
     //
     supportThread = IOCreateThread(startSupportThread, (void *)this);
+    globalThreadPtr = &supportThread;
 
     //
     // Initialise power management.  This must be done before
@@ -290,11 +265,6 @@ self::stop(IOService *provider)
     if (workLoop != NULL) {
 	workLoop->release();
     }
-
-    // release our memory cursor
-    if (memoryCursor != NULL) {
-	memoryCursor->release();
-    }
     
     // release the register map
     if (registerMap != NULL)
@@ -320,13 +290,15 @@ self::getWorkLoop(void)
 ////////////////////////////////////////////////////////////////////////////////
 // Initialisation glue
 
+int verbose;
+
 //
 // fetch adjustable settings
 //
 void
 self::getSettings(void)
 {
-    verbose = 5;
+    verbose = 0;
 #if 0
     OSNumber	*numObj;
     
@@ -358,8 +330,8 @@ self::createCommands(int count)
 	return(false);
     if ((adminCommands = IOCommandPool::withWorkLoop(workLoop)) == NULL)
 	return(false);
-    if ((userClientCommands = IOCommandPool::withWorkLoop(workLoop)) == NULL)
-	return(false);
+    /*if ((userClientCommands = IOCommandPool::withWorkLoop(workLoop)) == NULL)
+	return(false);*/
     bzero(commandLookup, sizeof(commandLookup));
 
     // create commands initially as IO commands
@@ -379,10 +351,12 @@ self::createCommands(int count)
     ec->commandType = EC_COMMAND_ADMIN;
     emergencyCommand = ec;
 
+#if 0
     // get a userclient command
     ec = getCommand();
     ec->commandType = EC_COMMAND_USERCLIENT;
     ec->returnCommand();
+#endif
 
     return(true);
 }
@@ -408,12 +382,14 @@ self::destroyCommands(void)
 	    ec->release();
 	}
     }
+#if 0
     if (userClientCommands != NULL) {
 	while ((ec = (EscaladeCommand *)userClientCommands->getCommand(false)) != NULL) {
 	    i++;
 	    ec->release();
 	}
     }
+#endif
     if (adminCommands != NULL) {
 	while ((ec = (EscaladeCommand *)adminCommands->getCommand(false)) != NULL) {
 	    i++;
@@ -425,9 +401,9 @@ self::destroyCommands(void)
 
     if (i != TWE_MAX_COMMANDS)
 	error("missing %d commands (still in use?)", TWE_MAX_COMMANDS - i);
-    freeCommands->release();
-    userClientCommands->release();
-    adminCommands->release();
+    if (freeCommands) freeCommands->release();
+    //userClientCommands->release();
+    if (adminCommands) adminCommands->release();
 }
 
 //
@@ -445,9 +421,11 @@ self::getCommand(int commandType)
 	case EC_COMMAND_ADMIN:
 	    cmd = (EscaladeCommand *)adminCommands->getCommand(true);
 	    break;
+#if 0
 	case EC_COMMAND_USERCLIENT:
 	    cmd = (EscaladeCommand *)userClientCommands->getCommand(true);
 	    break;
+#endif
 	default:
 	    return(NULL);
     }
@@ -469,9 +447,11 @@ self::_returnCommand(EscaladeCommand *cmd)
 	case EC_COMMAND_ADMIN:
 	    adminCommands->returnCommand(cmd);
 	    break;
+#if 0
 	case EC_COMMAND_USERCLIENT:
 	    userClientCommands->returnCommand(cmd);
 	    break;
+#endif
 	default:
 	    error("command with unknown type (%d) freed", cmd->commandType);
 	    cmd->release();	// try not to leak it...
@@ -511,6 +491,31 @@ self::_dequeueActive(EscaladeCommand *cmd)
     // that condition has been met.  Kick off the second part of the process.
     if (suspending && queue_empty(&activeCommands))
 	supportThreadAddWork(ST_DO_IDLED);
+}
+
+bool
+self::outputEscaladeSegment(IODMACommand * __unused,
+                            IODMACommand::Segment64 segment,
+                            void *segments,
+                            UInt32 segmentIndex)
+{
+    TWE_SG_Entry	*sg;
+    
+    sg = (TWE_SG_Entry *)segments;
+
+    sg[segmentIndex].address = OSSwapHostToLittleInt32(segment.fIOVMAddr);
+    sg[segmentIndex].length = OSSwapHostToLittleInt32(segment.fLength);
+    
+    return true;
+}
+
+// The Escalade controller requires all data to be 512-aligned.
+IODMACommand *
+self::factory(void)
+{
+    // initialise command
+    return IODMACommand::withSpecification(self::outputEscaladeSegment, 32, 0xfffffe0,
+                                              IODMACommand::kMapped, 0, TWE_ALIGNMENT);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -941,6 +946,9 @@ self::setProperties(void)
     setProperty(kIOMaximumBlockCountWriteKey, (UInt64)TWE_MAX_IO_LENGTH, 64);
     setProperty(kIOMaximumSegmentCountReadKey, (UInt64)TWE_MAX_SGL_LENGTH, 64);
     setProperty(kIOMaximumSegmentCountWriteKey, (UInt64)TWE_MAX_SGL_LENGTH, 64);
+    // The Escalade controller requires all data to be 512-multiple sized,
+    // bouncing is made up by IODMACommand
+    setProperty(kIOMinimumSegmentAlignmentByteCountKey, (UInt64)TWE_SECTOR_SIZE, 64);
 
     // physical interconnect data
     // XXX need to detemrine whether ATA or SATA
@@ -1027,6 +1035,7 @@ self::doSynchronizeCache(int unit)
     return(result ? kIOReturnSuccess : kIOReturnIOError);
 }
 
+#if 0
 ////////////////////////////////////////////////////////////////////////////////
 // EscaladeUserClient interface
 //
@@ -1050,6 +1059,7 @@ self::getControllerArchitecture(void)
     }
     return(TW_API_UNKNOWN_ARCHITECTURE);
 }
+#endif
 
 //
 // Request termination of a given unit
@@ -1169,6 +1179,7 @@ self::doAddUnit(int unit)
     return(kIOReturnSuccess);
 }
 
+#if 0
 //
 // Fetch an AEN from the queue.
 //
@@ -1208,6 +1219,7 @@ self::getAEN(void)
     }
     return(aenCode);
 }
+#endif
 
 //
 // Add an AEN to the queue.
@@ -1280,22 +1292,5 @@ self::addAEN(UInt16 aenCode)
 	case TWE_AEN_DRIVE_ERROR:
 	    // request a rescan of all units
 	    supportThreadAddWork(ST_DO_RESCAN);
-    }
-}
-
-//////////////////////////////////////////////////////////////////////////////
-// Print our banner into the system log, but only once.
-//
-
-static void
-showBanner(EscaladeController *us)
-{
-    static int done = 0;
-
-    if (!done) {
-	IOLog("3ware Escalade family driver  Built %s\n", __DATE__);
-	IOLog("  (c) 2003 Apple Computer, Michael Smith, All Rights Reserved\n");
-	done = 1;
-	escalade_classptr = us;
     }
 }

@@ -1,28 +1,4 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeController.h,v 1.21 2003/12/23 22:18:40 msmith Exp $
 
 //
 // EscaladeController
@@ -42,7 +18,7 @@
 // Command pool identifiers.
 #define EC_COMMAND_IO		0	// freeCommands pool
 #define EC_COMMAND_ADMIN	1	// adminCommand pool
-#define EC_COMMAND_USERCLIENT	2	// userClientCommand pool
+//#define EC_COMMAND_USERCLIENT	2	// userClientCommand pool
 
 // Timeout rate (seconds)
 // The timeout fires once (per controller) every TWE_TIMEOUT_RATE
@@ -58,7 +34,7 @@
 // Commands submitted by the userclient get a longer timeout, since
 // they may involve controller work as well.
 #define TWE_TIMEOUT_DEFAULT	30
-#define TWE_TIMEOUT_USERCLIENT	60
+//#define TWE_TIMEOUT_USERCLIENT	60
 
 // Support thread work request bits
 #define ST_DO_AEN	(1<<0)		// request clearing/processing of AEN queue
@@ -98,6 +74,7 @@ public:
     virtual void		_queueActive(EscaladeCommand *cmd);
     virtual void		_dequeueActive(EscaladeCommand *cmd);
 
+    IOThread IOCreateThread(IOThreadFunc, void *);
     // superclass overrides
     virtual bool		start(IOService *provider);
     virtual void		stop(IOService *provider);
@@ -109,7 +86,6 @@ public:
     virtual void		wakeCommand(EscaladeCommand *ec);
     virtual bool		postCommand(EscaladeCommand *ec);
     virtual void		requestReset(void) { supportThreadAddWork(ST_DO_RESET); };
-    EscaladeMemoryCursor	*memoryCursor;
 
     //
     // EscaladeDrive interface
@@ -120,13 +96,15 @@ public:
 				       UInt32 block, UInt32 nblks, IOStorageCompletion completion);
     virtual IOReturn		doSynchronizeCache(int unit);
 
+#if 0
     //
     // EscaladeUserClient interface
     //
     virtual int			getControllerArchitecture(void);
+    virtual UInt16		getAEN(void);
+#endif
     virtual IOReturn		doRemoveUnit(int unit, bool force = false);
     virtual IOReturn		doAddUnit(int unit);
-    virtual UInt16		getAEN(void);
 
     //
     // External command interface
@@ -142,6 +120,9 @@ public:
     
     // interrupt handling
     virtual void		handleInterrupt(void);
+    
+    // create a new command
+    static IODMACommand	*factory(void);
 
 private:
 
@@ -162,7 +143,7 @@ private:
     // command pools and indexing
     IOCommandPool		*freeCommands;
     IOCommandPool		*adminCommands;
-    IOCommandPool		*userClientCommands;
+    //IOCommandPool		*userClientCommands;
     EscaladeCommand		*emergencyCommand;
     EscaladeCommand		*commandLookup[TWE_MAX_COMMANDS];
     virtual bool		createCommands(int count);
@@ -195,6 +176,8 @@ private:
     static IOReturn		supportThreadCheckTimeouts(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
     static IOReturn		setSuspending(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
 
+    static bool         outputEscaladeSegment(IODMACommand *, IODMACommand::Segment64, void *, UInt32);
+    
     // event handlers
     static void			interruptOccurred(OSObject *owner, IOInterruptEventSource *src, int count);
     static void			timeoutOccurred(OSObject *owner, IOTimerEventSource *src);
@@ -205,16 +188,16 @@ private:
     bool			needReInit;
     int				fullPowerConsumers;
     virtual void		initPowerManagement(IOService *provider);
-    virtual UInt32		initialPowerStateForDomainState(IOPMPowerFlags flags);
+    virtual unsigned long		initialPowerStateForDomainState(IOPMPowerFlags flags);
     virtual IOReturn		setAggressiveness(UInt32 type, UInt32 minutes);
     virtual void		checkPowerState(void);
     static IOReturn		checkPowerStateLocked(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
-    virtual IOReturn		setPowerState(UInt32 state, IOService *whichDevice);
+    virtual IOReturn		setPowerState(unsigned long state, IOService *whichDevice);
     virtual void		setPowerStandby(void);
     virtual void		setPowerActive(void);
     virtual void		setDrivePower(bool powerOn);
 
-    static IOReturn		changeFullPowerConsumer(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
+    IOReturn            changeFullPowerConsumer(int delta);
     IONotifier			*powerDownNotifier;
     static IOReturn		powerDownHandler(void *target, void *refCon, UInt32 messageType, IOService * service,
 						 void* messageArgument, vm_size_t argSize);
@@ -263,7 +246,5 @@ __private_extern__ int verbose;
     do {                                                \
 	IOLog("%s: " fmt "\n", __func__ , ##args);      \
     } while (0);
-
-extern "C" EscaladeController *escalade_classptr;
 
 #endif // ESCALADECONTROLLER_H

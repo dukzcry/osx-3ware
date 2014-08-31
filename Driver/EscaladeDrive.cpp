@@ -1,34 +1,9 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
+// $Id: EscaladeDrive.cpp,v 1.17 2003/12/23 22:10:07 msmith Exp $
 
 //
 // EscaladeDrive
 //
 
-// Master include - do not include other headers here.
 #include "Escalade.h"
 
 // convenience
@@ -55,7 +30,6 @@ self::attach(IOService *provider)
 	return(false);
     
     controller = withController;
-    setIcon();
 
     // set interconnect properties
     if ((aDictionary = OSDictionary::withCapacity(2)) != NULL) {
@@ -132,14 +106,31 @@ self::setConfiguration(char *config)
 //
 
 IOReturn
-self::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt32 block, UInt32 nblks, IOStorageCompletion completion)
+self::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block, UInt64 nblks,
+                       IOStorageAttributes *attributes __unused, IOStorageCompletion *completion)
 {
     // check for termination in progress
     if (isInactive())
 	return(kIOReturnNotAttached);
     
-    return(controller->doAsyncReadWrite(unitNumber, buffer, block, nblks, completion));
+    return(controller->doAsyncReadWrite(unitNumber, buffer, block, nblks, *completion));
 }
+
+#ifdef __LP64__
+IOReturn
+self::getWriteCacheState(bool *enabled)
+{
+    return(kIOReturnUnsupported);
+}
+
+OSMetaClassDefineReservedUsed(IOBlockStorageDevice, 1);
+
+IOReturn
+self::setWriteCacheState(bool enabled)
+{
+    return(kIOReturnUnsupported);
+}
+#endif
 
 IOReturn
 self::doEjectMedia(void)
@@ -270,31 +261,4 @@ self::reportWriteProtection(bool *isWriteProtected)
 {
     *isWriteProtected = false;
     return(kIOReturnSuccess);
-}
-
-//////////////////////////////////////////////////////////////////////////////
-// setIcon
-//
-// Establish the appropriate icon for this drive
-//
-void
-self::setIcon(void)
-{
-    OSDictionary *dict;
-    OSString	*identifier;
-    OSString	*resourceFile;
-
-    // Don't override a preexisting icon property
-    if (getProperty(kIOMediaIconKey, gIOServicePlane) != NULL)
-	return;
-    
-    dict = OSDictionary::withCapacity(2);
-    identifier = OSString::withCString("com.3ware");
-    resourceFile = OSString::withCString("Escalade.icns");
-    dict->setObject("CFBundleIdentifier", identifier);
-    dict->setObject(kIOBundleResourceFileKey, resourceFile);
-    setProperty(kIOMediaIconKey, dict);
-    resourceFile->release();
-    identifier->release();
-    dict->release();    
 }

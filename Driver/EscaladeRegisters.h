@@ -1,32 +1,6 @@
-//-
-// Copyright (c) 2003 Apple Computer, Inc. All rights reserved.
-//
-// @APPLE_LICENSE_HEADER_START@
-// 
-// Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
-// 
-// This file contains Original Code and/or Modifications of Original Code
-// as defined in and that are subject to the Apple Public Source License
-// Version 2.0 (the 'License'). You may not use this file except in
-// compliance with the License. Please obtain a copy of the License at
-// http://www.opensource.apple.com/apsl/ and read it before using this
-// file.
-// 
-// The Original Code and all software distributed under the License are
-// distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
-// EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
-// INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
-// Please see the License for the specific language governing rights and
-// limitations under the License.
-// 
-// @APPLE_LICENSE_HEADER_END@
-//
-// $Id$
-//
-// Derived from
-//      $FreeBSD: src/sys/dev/twe/twereg.h,v 1.5 2001/05/07 21:46:44 msmith Exp $
-//
+// $Id: EscaladeRegisters.h,v 1.12 2003/12/23 22:16:54 msmith Exp $
+// $FreeBSD: src/sys/dev/twe/twereg.h,v 1.5 2001/05/07 21:46:44 msmith Exp $
+
 // Copyright (c) 2000-2001 Michael Smith
 // All rights reserved.
 //
@@ -51,7 +25,6 @@
 // OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 // SUCH DAMAGE.
 //
-
 
 #ifndef ESCALADEREGISTERS_H
 #define ESCALADEREGISTERS_H
@@ -169,12 +142,15 @@
 #define TWE_MAX_IO_LENGTH		65535	// 16-bit block count
 #define TWE_SECTOR_SIZE			0x200	// generic I/O bufffer
 
+// Everything in here is packed
+#pragma pack(0)
+
 // scatter/gather list entry
-typedef struct TWE_SG_Entry
+typedef struct
 {
     u_int32_t	address;
     u_int32_t	length;
-} __attribute__ ((packed));
+} TWE_SG_Entry;
 
 typedef struct {
     u_int8_t	opcode;		// TWE_OP_INITCONNECTION
@@ -185,7 +161,7 @@ typedef struct {
     u_int8_t	flags;
     u_int16_t	message_credits;
     u_int32_t	response_queue_pointer;
-} TWE_Command_INITCONNECTION __attribute__ ((packed));
+} TWE_Command_INITCONNECTION;
 
 typedef struct
 {
@@ -199,7 +175,7 @@ typedef struct
     u_int16_t	block_count;
     u_int32_t	lba;
     TWE_SG_Entry sgl[TWE_MAX_SGL_LENGTH];
-} TWE_Command_IO __attribute__ ((packed));
+} TWE_Command_IO;
 
 typedef struct
 {
@@ -215,7 +191,7 @@ typedef struct
 #define TWE_OP_HOTSWAP_ADD_CBOD		0x01	// add CBOD to empty port
 #define TWE_OP_HOTSWAP_ADD_SPARE	0x02	// add spare to empty port
     u_int8_t	aport;
-} TWE_Command_HOTSWAP __attribute__ ((packed));
+} TWE_Command_HOTSWAP;
 
 typedef struct
 {
@@ -231,7 +207,7 @@ typedef struct
     u_int8_t	feature_mode;
     u_int16_t	all_units;
     u_int16_t	persistence;
-} TWE_Command_SETATAFEATURE __attribute__ ((packed));
+} TWE_Command_SETATAFEATURE;
 
 typedef struct
 {
@@ -242,7 +218,7 @@ typedef struct
     u_int8_t	status;
     u_int8_t	flags;
     u_int16_t	target_status;		// set low byte to target request's ID
-} TWE_Command_CHECKSTATUS __attribute__ ((packed));
+} TWE_Command_CHECKSTATUS;
 
 typedef struct
 {
@@ -254,7 +230,7 @@ typedef struct
     u_int8_t	flags;
     u_int16_t	param_count;
     TWE_SG_Entry sgl[TWE_MAX_SGL_LENGTH];
-} TWE_Command_PARAM __attribute__ ((packed));
+} TWE_Command_PARAM;
 
 typedef struct
 {
@@ -271,7 +247,7 @@ typedef struct
 #define TWE_OP_REBUILDUNIT_START	4	// start rebuild with lowest unit
 #define TWE_OP_REBUILDUNIT_STARTUNIT	5	// rebuild src_unit (not supported)
     u_int8_t	logical_subunit;		// for RAID10 rebuild of logical subunit
-} TWE_Command_REBUILDUNIT __attribute__ ((packed));
+} TWE_Command_REBUILDUNIT;
 
 typedef struct
 {
@@ -289,7 +265,7 @@ typedef struct
     u_int8_t	drive_head;
     u_int8_t	command;
     TWE_SG_Entry sgl[TWE_MAX_ATA_SGL_LENGTH];
-} TWE_Command_ATA __attribute__ ((packed));
+} TWE_Command_ATA;
 
 typedef struct
 {
@@ -301,7 +277,7 @@ typedef struct
     u_int8_t	flags;
     u_int16_t	page_index;
     TWE_SG_Entry sgl[TWE_MAX_SGL_LENGTH];
-} TWE_Command_CONFIG __attribute__ ((packed));
+} TWE_Command_CONFIG;
 
 typedef struct
 {
@@ -317,7 +293,7 @@ typedef struct
 #define TWE_FLAGS_FATAL		0x03
 #define TWE_FLAGS_PERCENTAGE	(1<<8)	// bits 0-6 indicate completion percentage
     u_int16_t	count;			// block count, parameter count, message credits
-} TWE_Command_Generic __attribute__ ((packed));
+} TWE_Command_Generic;
 
 // command packet - must be TWE_ALIGNMENT aligned
 typedef union
@@ -463,7 +439,7 @@ typedef struct
     u_int8_t		log_drv_num;	// must be zero for configuration == 0x0f
     u_int32_t		start_lba;
     u_int32_t		block_count;	// actual drive size if configuration == 0x0f, otherwise less DCB size
-} TWE_Unit_Descriptor __attribute__ ((packed));
+} TWE_Unit_Descriptor;
 
 typedef struct
 {
@@ -471,7 +447,7 @@ typedef struct
     u_int8_t		res1;
     u_int8_t		mirunit_status[4];	// bitmap of functional subunits in each mirror
     u_int8_t		res2[6];
-} TWE_Mirror_Descriptor __attribute__ ((packed));
+} TWE_Mirror_Descriptor;
 
 typedef struct
 {
@@ -492,7 +468,7 @@ typedef struct
     u_int32_t		start_lba;
     u_int32_t		block_count;	// actual drive size if configuration == 0x0f, otherwise less DCB size
     TWE_Unit_Descriptor	subunit[0];	// subunit descriptors, in RAID10 mode is [mirunit][subunit]
-} TWE_Array_Descriptor __attribute__ ((packed));
+} TWE_Array_Descriptor;
 
 typedef struct
 {
@@ -500,6 +476,8 @@ typedef struct
     u_int8_t	parameter_id;
     u_int8_t	parameter_size_bytes;
     u_int8_t	data[0];
-} TWE_Param __attribute__ ((packed));
+} TWE_Param;
+
+#pragma pack()
 
 #endif // ESCALADEREGISTERS_H
