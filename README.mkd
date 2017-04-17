@@ -1,4 +1,4 @@
-#Release Notes
+# Release Notes
 
 It has not been widely tested, so hardware incompatibilities may still be present.
 
@@ -8,7 +8,7 @@ MacOS 10.5 or up is required. All legal drive configurations are supported.
 
 Support for tw_cli is dropped.
 
-##Limitations
+## Limitations
 
 32-bit DMA
 
@@ -16,16 +16,16 @@ Support for tw_cli is dropped.
 
 16-bit transfers (limitation set by msmith)
 
-##Notes for coder
+## Notes for coder
 
 Not inherited from IO*Controller. Inherited from IOBlockStorageDevice for exporting of block devices to the system;
 
 IOUserClient API is < 10.5 compatible
 
-##0.4.1
+## 0.4.1
 
 Please take the time to read these notes in their entirety.  This is an _**EARLY RELEASE**_ driver, and there are important things to bear in mind when using it.
 
-##Supported Configurations
+## Supported Configurations
 
 The driver supports 6xxx and 7xxx controllers.
